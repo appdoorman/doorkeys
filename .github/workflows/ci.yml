@@ -1,0 +1,32 @@
+# Takes effect when this folder is the root of its own repository: lint, tests and a signature
+# check of every Doorkey spec.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Rust 1.86
+        run: |
+          rustup toolchain install 1.86 --profile minimal --component clippy
+          rustup default 1.86
+
+      - name: Lint
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Tests
+        run: cargo test
+
+      - name: Every Doorkey spec is signed
+        run: cargo run --bin doorkey-verify -- doorkeys/*.doorkey.json

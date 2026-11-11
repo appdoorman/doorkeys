@@ -1,0 +1,4 @@
+# Signed specs are checked byte for byte, so line endings stay as committed.
+doorkeys/*.json -text
+doorkeys/*.sig -text
+doorkeys/*.pub -text

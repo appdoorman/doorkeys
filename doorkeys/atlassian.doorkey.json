@@ -1,0 +1,137 @@
+{
+  "doorkey": "atlassian",
+  "version": 4,
+
+  "_comment": {
+    "source": "Atlassian's organization admin REST API v2, from its OpenAPI spec (https://developer.atlassian.com/cloud/admin/organization/swagger.json) and reference (https://developer.atlassian.com/cloud/admin/organization/rest/api-group-users/). Directory, user and group v2 APIs shipped 2025-11-24 'available to all customers'; the v2 invite API shipped 2026-01-13 for orgs with at least one paid subscription (https://developer.atlassian.com/cloud/admin/changelog/). Atlassian only offers SCIM with the Atlassian Guard add-on; none of these endpoints needs Guard.",
+    "credential": "An organization API key without scopes, made by an organization admin (admin.atlassian.com, Settings, API keys), sent as a bearer token. A key with scopes, even every accounts, directories and groups scope, gets 403 on invite: these endpoints have no scope yet. It expires when the admin chose (at most a year).",
+    "base_url": "The customer's organization: https://api.atlassian.com/admin/v2/orgs/<organization id>, the id in the Atlassian Administration URL.",
+    "directories": "Reads use the directory `-`, every directory the key may manage, so an org with several is read as one. Changes need the user's own directory: Atlassian answers 404 to a suspend, restore or removal under `-`. It is read first from the directories the account is in; an account in none or in several gets no change.",
+    "groups": "Google groups are pushed as Atlassian groups: a managed group is found by its id, any other by its exact name (two by that name push nothing), and a new one is created in the org's one directory (an org with several gets none). Members are added and removed one at a time in the member's own directory, each read back from the group's member list (GET users filtered by groupIds). Atlassian has no rename, so a group renamed in Google keeps its old name in Atlassian. App roles are given to a pushed group once, in Atlassian.",
+    "settle": "Atlassian's single-user read shows the old status for one to two seconds after a suspend or restore, so read-backs are tried again for up to 7.5 seconds.",
+    "membership": "`status` is a composite of the account and its org membership: `active` is access, `suspended` and `deactivated` are not. A suspended user keeps their groups and roles and is not billed; restore gives them back. `not_invited` (an Atlassian account with no membership left, such as one removed from the directory) and `for_deletion` are left out: neither has access, and a removal is confirmed by the user no longer being listed with access.",
+    "access": "An invite only gives access to what it names, so people are invited into one group, named exactly `appdoorman-users`, which the customer creates and grants the app roles (Jira, Confluence, …) every joiner should have. Its id is looked up by name across every directory; no such group, or more than one, sends nothing. A leaver is suspended (every app, not one product); removing them takes them out of the directory.",
+    "list": "The member list uses GET /directories/-/users, which Atlassian deprecated in favour of POST /users/search and keeps working until 2027-06-30. The engine reads lists with GET only, so the Doorkey must move to search before that date. Only claimed (managed) accounts and members of the org are listed: the customer verifies their domain first.",
+    "invites": "Unmanaged accounts are listed with their email, before any domain verification. A user invited from the admin UI is listed at once as `active`, so an invite is confirmed at once or fails, never left pending. Atlassian answers 402 'Org does not have any paid products' to an invite on an org without a paid app."
+  },
+
+  "base_url": "https://api.atlassian.com/admin/v2/orgs/REPLACE-WITH-ORGANIZATION-ID",
+  "hosts": ["api.atlassian.com"],
+  "auth": { "scheme": "bearer" },
+  "settle": { "tries": 6, "wait_ms": 1500 },
+
+  "allow": [
+    { "method": "GET",    "path": "/directories/-/users",              "params": ["cursor", "limit", "groupIds"] },
+    { "method": "GET",    "path": "/directories/-/users/{id}",         "params": [] },
+    { "method": "GET",    "path": "/directories/-/groups",             "params": ["cursor", "limit"] },
+    { "method": "GET",    "path": "/directories",                      "params": ["accountId", "cursor", "limit"] },
+    { "method": "POST",   "path": "/users/invite",                     "params": [] },
+    { "method": "POST",   "path": "/directories/{directory_id}/users/{id}/suspend", "params": [] },
+    { "method": "POST",   "path": "/directories/{directory_id}/users/{id}/restore", "params": [] },
+    { "method": "DELETE", "path": "/directories/{directory_id}/users/{id}", "params": [] },
+    { "method": "POST",   "path": "/directories/{directory_id}/groups", "params": [] },
+    { "method": "POST",   "path": "/directories/{directory_id}/groups/{group_id}/memberships", "params": [] },
+    { "method": "DELETE", "path": "/directories/{directory_id}/groups/{group_id}/memberships/{id}", "params": [] }
+  ],
+
+  "ops": {
+    "list_users": {
+      "request": { "method": "GET", "path": "/directories/-/users" },
+      "paginate": { "style": "cursor", "param": "cursor", "next": "links.next", "size_param": "limit", "size": 100 },
+      "extract": {
+        "list": "data",
+        "id": "accountId",
+        "user_name": "email",
+        "active": "status",
+        "active_when": "active",
+        "skip": [{ "status": "not_invited" }, { "status": "for_deletion" }]
+      }
+    },
+    "find_user": {
+      "request": { "method": "GET", "path": "/directories/-/users/{id}" },
+      "extract": { "id": "data.accountId", "user_name": "data.email", "active": "data.status", "active_when": "active" }
+    },
+    "list_directories": {
+      "request": { "method": "GET", "path": "/directories", "query": { "accountId": "{id}" } },
+      "paginate": { "style": "cursor", "param": "cursor", "next": "links.next", "size_param": "limit", "size": 100 }
+    },
+    "list_joiner_members": {
+      "_comment": "The members of the appdoorman-users group, so an invite counts only once the person is in it. Atlassian answers a partly done invite (account made, group not assigned) with 206, a success code; this read-back turns that into a failed change instead of an account without access.",
+      "request": { "method": "GET", "path": "/directories/-/users", "query": { "groupIds": "{joiner_group}" } },
+      "paginate": { "style": "cursor", "param": "cursor", "next": "links.next", "size_param": "limit", "size": 100 },
+      "extract": {
+        "list": "data",
+        "id": "accountId",
+        "user_name": "email",
+        "active": "status",
+        "active_when": "active",
+        "skip": [{ "status": "not_invited" }, { "status": "for_deletion" }]
+      }
+    },
+    "list_all_directories": {
+      "request": { "method": "GET", "path": "/directories" },
+      "paginate": { "style": "cursor", "param": "cursor", "next": "links.next", "size_param": "limit", "size": 100 }
+    },
+    "list_groups": {
+      "request": { "method": "GET", "path": "/directories/-/groups" },
+      "paginate": { "style": "cursor", "param": "cursor", "next": "links.next", "size_param": "limit", "size": 100 },
+      "groups": { "list": "data", "id": "id", "name": "name" }
+    },
+    "list_group_members": {
+      "request": { "method": "GET", "path": "/directories/-/users", "query": { "groupIds": "{group_id}" } },
+      "paginate": { "style": "cursor", "param": "cursor", "next": "links.next", "size_param": "limit", "size": 100 },
+      "extract": {
+        "list": "data",
+        "id": "accountId",
+        "user_name": "email",
+        "active": "status",
+        "active_when": "active",
+        "skip": [{ "status": "not_invited" }, { "status": "for_deletion" }]
+      }
+    },
+    "create_group": {
+      "lookup": { "directory_id": { "op": "list_all_directories", "list": "data", "single": true, "take": "directoryId" } },
+      "request": { "method": "POST", "path": "/directories/{directory_id}/groups", "body": { "name": "{name}" } },
+      "verify": { "present": { "op": "list_groups", "expect": { "name": "{name}" } } }
+    },
+    "add_group_member": {
+      "lookup": { "directory_id": { "op": "list_directories", "list": "data", "single": true, "take": "directoryId" } },
+      "request": { "method": "POST", "path": "/directories/{directory_id}/groups/{group_id}/memberships", "body": { "accountId": "{id}" } },
+      "verify": { "present": { "op": "list_group_members", "expect": {} } }
+    },
+    "remove_group_member": {
+      "lookup": { "directory_id": { "op": "list_directories", "list": "data", "single": true, "take": "directoryId" } },
+      "request": { "method": "DELETE", "path": "/directories/{directory_id}/groups/{group_id}/memberships/{id}" },
+      "verify": { "absent": { "op": "list_group_members" } }
+    },
+    "create_user": {
+      "lookup": { "joiner_group": { "op": "list_groups", "list": "data", "where": { "name": "appdoorman-users" }, "take": "id" } },
+      "request": {
+        "method": "POST",
+        "path": "/users/invite",
+        "body": {
+          "emails": ["{email}"],
+          "additionalGroups": ["{joiner_group}"],
+          "sendNotification": true,
+          "notificationText": "Your administrator gave you access to your company's Atlassian apps."
+        }
+      },
+      "verify": { "present": { "op": "list_joiner_members", "expect": { "user_name": "{user_name}", "active": true } } }
+    },
+    "deactivate_user": {
+      "lookup": { "directory_id": { "op": "list_directories", "list": "data", "single": true, "take": "directoryId" } },
+      "request": { "method": "POST", "path": "/directories/{directory_id}/users/{id}/suspend" },
+      "verify": { "present": { "op": "find_user", "expect": { "active": false } } }
+    },
+    "reactivate_user": {
+      "lookup": { "directory_id": { "op": "list_directories", "list": "data", "single": true, "take": "directoryId" } },
+      "request": { "method": "POST", "path": "/directories/{directory_id}/users/{id}/restore" },
+      "verify": { "present": { "op": "find_user", "expect": { "active": true } } }
+    },
+    "delete_user": {
+      "lookup": { "directory_id": { "op": "list_directories", "list": "data", "single": true, "take": "directoryId" } },
+      "request": { "method": "DELETE", "path": "/directories/{directory_id}/users/{id}" },
+      "verify": { "absent": { "op": "list_users" } }
+    }
+  }
+}

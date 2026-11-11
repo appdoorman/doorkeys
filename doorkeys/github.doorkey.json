@@ -1,0 +1,82 @@
+{
+  "doorkey": "github",
+  "version": 1,
+
+  "_comment": {
+    "source": "GitHub's REST API for organization members and teams: https://docs.github.com/en/rest/orgs/members and https://docs.github.com/en/rest/teams/members, https://docs.github.com/en/rest/teams/teams. GitHub's SCIM needs Enterprise Cloud; these endpoints work on Free and Team organizations.",
+    "credential": "A token of an organization owner, sent as a bearer token: a fine-grained token for this organization with the Members organization permission (read and write), or a classic token with the admin:org scope. Owners only can invite and remove.",
+    "base_url": "The customer's organization: https://api.github.com/orgs/<organization>.",
+    "identity": "Below Enterprise Cloud, GitHub never shows an organization member's email address, so people are matched by GitHub username, which the sync run maps from the Google custom attribute GitHub > Username. Somebody without one is not invited, and the run says so.",
+    "membership": "Being listed as a member is having access, so there is no suspend: a leaver is removed from the organization, which also cancels a pending invitation. An invitation shows only on the membership read (state pending), not in the member list, so a new person is pending until they accept.",
+    "teams": "Google groups can be pushed as teams, found by name (two by that name push nothing) and created as closed teams; whoever owns the token becomes a maintainer of a team it creates, and AppDoorman leaves that membership alone. Members are added as plain members and removed one at a time, each read back from the team's member list."
+  },
+
+  "base_url": "https://api.github.com/orgs/REPLACE-WITH-ORGANIZATION",
+  "hosts": ["api.github.com"],
+  "auth": { "scheme": "bearer" },
+  "headers": { "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" },
+  "settle": { "tries": 4, "wait_ms": 1500 },
+
+  "allow": [
+    { "method": "GET",    "path": "/members",                                "params": ["page", "per_page"] },
+    { "method": "GET",    "path": "/memberships/{id}",                       "params": [] },
+    { "method": "PUT",    "path": "/memberships/{id}",                       "params": [] },
+    { "method": "DELETE", "path": "/memberships/{id}",                       "params": [] },
+    { "method": "GET",    "path": "/teams",                                  "params": ["page", "per_page"] },
+    { "method": "POST",   "path": "/teams",                                  "params": [] },
+    { "method": "GET",    "path": "/teams/{group_id}/members",               "params": ["page", "per_page"] },
+    { "method": "PUT",    "path": "/teams/{group_id}/memberships/{id}",      "params": [] },
+    { "method": "DELETE", "path": "/teams/{group_id}/memberships/{id}",      "params": [] }
+  ],
+
+  "ops": {
+    "list_users": {
+      "request": { "method": "GET", "path": "/members" },
+      "paginate": { "style": "page", "param": "page", "size_param": "per_page", "size": 100, "first": 1 },
+      "extract": { "list": "", "id": "login", "user_name": "login" }
+    },
+    "find_user": {
+      "request": { "method": "GET", "path": "/memberships/{id}" },
+      "extract": { "id": "user.login", "user_name": "user.login" }
+    },
+    "find_invitee": {
+      "request": { "method": "GET", "path": "/memberships/{user_name}" },
+      "extract": { "id": "user.login", "user_name": "user.login" }
+    },
+    "create_user": {
+      "request": { "method": "PUT", "path": "/memberships/{user_name}", "body": { "role": "member" } },
+      "verify": { "present": { "op": "list_users", "expect": { "user_name": "{user_name}" } } },
+      "allow_pending": true
+    },
+    "delete_user": {
+      "request": { "method": "DELETE", "path": "/memberships/{id}" },
+      "verify": { "absent": { "op": "find_user" } }
+    },
+    "withdraw_invite": {
+      "request": { "method": "DELETE", "path": "/memberships/{user_name}" },
+      "verify": { "absent": { "op": "find_invitee" } }
+    },
+    "list_groups": {
+      "request": { "method": "GET", "path": "/teams" },
+      "paginate": { "style": "page", "param": "page", "size_param": "per_page", "size": 100, "first": 1 },
+      "groups": { "list": "", "id": "slug", "name": "name" }
+    },
+    "list_group_members": {
+      "request": { "method": "GET", "path": "/teams/{group_id}/members" },
+      "paginate": { "style": "page", "param": "page", "size_param": "per_page", "size": 100, "first": 1 },
+      "extract": { "list": "", "id": "login", "user_name": "login" }
+    },
+    "create_group": {
+      "request": { "method": "POST", "path": "/teams", "body": { "name": "{name}", "privacy": "closed" } },
+      "verify": { "present": { "op": "list_groups", "expect": { "name": "{name}" } } }
+    },
+    "add_group_member": {
+      "request": { "method": "PUT", "path": "/teams/{group_id}/memberships/{id}", "body": { "role": "member" } },
+      "verify": { "present": { "op": "list_group_members", "expect": {} } }
+    },
+    "remove_group_member": {
+      "request": { "method": "DELETE", "path": "/teams/{group_id}/memberships/{id}" },
+      "verify": { "absent": { "op": "list_group_members" } }
+    }
+  }
+}

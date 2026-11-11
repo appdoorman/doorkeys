@@ -1,0 +1,176 @@
+{
+  "doorkey": "openai",
+  "version": 2,
+  "_comment": {
+    "source": "OpenAI's OpenAPI spec (https://github.com/openai/openai-openapi): GET /organization/users, GET and DELETE /organization/users/{user_id}, GET and POST /organization/invites, DELETE /organization/invites/{invite_id}. This is the OpenAI Platform (API) organization, on every plan; it does not manage ChatGPT workspace seats.",
+    "credential": "An organization Admin API key (sk-admin…), made by an organization owner, sent as a bearer token. Admin keys can't call models.",
+    "hosts": "One API host for every organization; the key decides the organization, so the URL is fixed.",
+    "membership": "Members have no active flag: being a member is having access, so there is no suspend and a leaver is removed. Service accounts are listed among the users and are left out. Users and invites page by id (after, then last_id); the page after the last one is empty.",
+    "invites": "A person joins by accepting an invite, so a new member is pending until then and settled from the member list. When the person leaves their groups first, their pending invite is withdrawn (looked up by email) and confirmed gone. Invites read pending, accepted or expired, and only pending ones count.",
+    "role": "Invites use the reader role; an owner raises it in OpenAI when needed. New members join the default project, as OpenAI does when no projects are named.",
+    "prerequisites": "OpenAI invites only into an organization that has a name, a payment method and a default project, and an organization owned by a personal address (Gmail) can't invite people on a company domain (block_invite_organization_user). The organization's owner should be on the company's own domain. The hints below turn those refusals into instructions."
+  },
+  "base_url": "https://api.openai.com/v1/organization",
+  "hosts": [
+    "api.openai.com"
+  ],
+  "auth": {
+    "scheme": "bearer"
+  },
+  "allow": [
+    {
+      "method": "GET",
+      "path": "/users",
+      "params": [
+        "limit",
+        "after"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/users/{id}",
+      "params": []
+    },
+    {
+      "method": "DELETE",
+      "path": "/users/{id}",
+      "params": []
+    },
+    {
+      "method": "GET",
+      "path": "/invites",
+      "params": [
+        "limit",
+        "after"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/invites",
+      "params": []
+    },
+    {
+      "method": "DELETE",
+      "path": "/invites/{invite_id}",
+      "params": []
+    }
+  ],
+  "hints": {
+    "user_not_in_org": "OpenAI refused: this organization isn't set up for members yet. Give it a name in OpenAI (People, Add member asks for one) and add a payment method under Billing.",
+    "block_invite_organization_user": "OpenAI refused to invite this person. OpenAI blocks invites from an organization owned by a personal address (like Gmail) to people on a company domain: make someone on your company's domain the organization's owner.",
+    "invalid_project_invite": "OpenAI refused: the organization has no default project for new members. Add a payment method under Billing, then make sure a project exists under Projects."
+  },
+  "ops": {
+    "list_users": {
+      "request": {
+        "method": "GET",
+        "path": "/users"
+      },
+      "paginate": {
+        "style": "cursor",
+        "param": "after",
+        "next": "last_id",
+        "size_param": "limit",
+        "size": 100
+      },
+      "extract": {
+        "list": "data",
+        "id": "id",
+        "user_name": "email",
+        "skip": [
+          {
+            "is_service_account": true
+          }
+        ]
+      }
+    },
+    "find_user": {
+      "request": {
+        "method": "GET",
+        "path": "/users/{id}"
+      },
+      "extract": {
+        "id": "id",
+        "user_name": "email"
+      }
+    },
+    "list_invites": {
+      "request": {
+        "method": "GET",
+        "path": "/invites"
+      },
+      "paginate": {
+        "style": "cursor",
+        "param": "after",
+        "next": "last_id",
+        "size_param": "limit",
+        "size": 100
+      },
+      "extract": {
+        "list": "data",
+        "id": "id",
+        "user_name": "email",
+        "skip": [
+          {
+            "status": "accepted"
+          },
+          {
+            "status": "expired"
+          }
+        ]
+      }
+    },
+    "create_user": {
+      "request": {
+        "method": "POST",
+        "path": "/invites",
+        "body": {
+          "email": "{email}",
+          "role": "reader"
+        }
+      },
+      "verify": {
+        "present": {
+          "op": "list_users",
+          "expect": {
+            "user_name": "{user_name}"
+          }
+        }
+      },
+      "allow_pending": true
+    },
+    "delete_user": {
+      "request": {
+        "method": "DELETE",
+        "path": "/users/{id}"
+      },
+      "verify": {
+        "absent": {
+          "op": "find_user"
+        }
+      }
+    },
+    "withdraw_invite": {
+      "lookup": {
+        "invite_id": {
+          "op": "list_invites",
+          "list": "data",
+          "where": {
+            "email": "{user_name}",
+            "status": "pending"
+          },
+          "take": "id"
+        }
+      },
+      "request": {
+        "method": "DELETE",
+        "path": "/invites/{invite_id}"
+      },
+      "verify": {
+        "absent": {
+          "op": "list_invites"
+        }
+      }
+    }
+  }
+}

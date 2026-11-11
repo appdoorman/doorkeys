@@ -1,0 +1,48 @@
+{
+  "doorkey": "asana",
+  "version": 1,
+
+  "_comment": {
+    "source": "Asana's documented API: workspace memberships (https://developers.asana.com/reference/getworkspacemembershipsforworkspace), addUser and removeUser (https://developers.asana.com/reference/adduserforworkspace, https://developers.asana.com/reference/removeuserforworkspace). Asana only offers SCIM on Enterprise; these endpoints work on Starter and Advanced.",
+    "credential": "A personal access token of an organization admin, sent as a bearer token. It acts as that admin and expires as the organization's token policy says (ten years by default).",
+    "base_url": "The customer's organization: https://app.asana.com/api/1.0/workspaces/<organization id>. Every request stays under it, so the token is only ever used on that one organization.",
+    "membership": "Being listed is having access: an invite is listed as an active member at once, and a removed member drops off the list. There is no suspend, so a leaver is removed. An inactive membership has no access and is left out. The organization's plain user list is not used: it does not page and stops at 2000 people.",
+    "remove": "Asana transfers what a removed person owned to the owner of the token. Their private work is lost unless they make it public first."
+  },
+
+  "base_url": "https://app.asana.com/api/1.0/workspaces/REPLACE-WITH-ORGANIZATION-ID",
+  "hosts": ["app.asana.com"],
+  "auth": { "scheme": "bearer" },
+
+  "allow": [
+    { "method": "GET",  "path": "/workspace_memberships", "params": ["opt_fields", "limit", "offset"] },
+    { "method": "POST", "path": "/addUser",               "params": ["opt_fields"] },
+    { "method": "POST", "path": "/removeUser",            "params": [] }
+  ],
+
+  "ops": {
+    "list_users": {
+      "request": { "method": "GET", "path": "/workspace_memberships", "query": { "opt_fields": "user.email,is_active" } },
+      "paginate": { "style": "cursor", "param": "offset", "next": "next_page.offset", "size_param": "limit", "size": 100 },
+      "extract": { "list": "data", "id": "user.gid", "user_name": "user.email", "skip": [{ "is_active": false }] }
+    },
+    "create_user": {
+      "request": {
+        "method": "POST",
+        "path": "/addUser",
+        "query": { "opt_fields": "email" },
+        "body": { "data": { "user": "{email}" } }
+      },
+      "extract": { "id": "data.gid", "user_name": "data.email" },
+      "verify": { "present": { "op": "list_users", "expect": { "user_name": "{user_name}" } } }
+    },
+    "delete_user": {
+      "request": {
+        "method": "POST",
+        "path": "/removeUser",
+        "body": { "data": { "user": "{id}" } }
+      },
+      "verify": { "absent": { "op": "list_users" } }
+    }
+  }
+}

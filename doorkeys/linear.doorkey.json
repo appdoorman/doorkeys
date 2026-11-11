@@ -1,0 +1,98 @@
+{
+  "doorkey": "linear",
+  "version": 1,
+
+  "_comment": {
+    "source": "Linear's public GraphQL API (https://linear.app/developers/graphql) and its published schema (https://github.com/linear/linear/blob/master/packages/sdk/src/schema.graphql): Query.users (includeDisabled, first/after), Query.organizationInvites, Mutation.organizationInviteCreate (OrganizationInviteCreateInput: email, role), Mutation.organizationInviteDelete(id), Mutation.userSuspend(id) and Mutation.userUnsuspend(id). The API is on every plan; SCIM and SAML are Enterprise only.",
+    "credential": "A personal API key of a workspace admin (Settings, Security & access, Personal API keys) with the Read, Write and Admin permissions, sent as the bare Authorization header Linear documents for personal keys (no Bearer prefix). Read and Admin cannot invite (`write` required), and Write and Admin cannot read users or invites (`read` required). A Bearer prefix gets 400 and a wrong key 401. It acts as that admin, so use a dedicated admin account.",
+    "base_url": "Linear has one API endpoint for every workspace; the key decides the workspace, so the URL is fixed.",
+    "graphql": "Every request is POST /graphql with a fixed document from this signed spec; only the variables are filled in. The allowlist names each permitted root field, so the key can list users and invites, invite, withdraw an invite, suspend and unsuspend, and nothing else. A 200 answer with errors or without data fails closed, and every change is read back, so a mutation answering success false fails too.",
+    "membership": "Users are listed with includeDisabled, so a suspended user reads active false and a leaver is suspended (freeing their seat) and can be unsuspended on return. Linear has no API to remove a user. App users (integrations) are left out. Linear lists an invitee at once, as an inactive user never seen (lastSeen null) with the id they keep after joining; that placeholder is left out, since it is an invite, not a suspended member. A suspended member has been seen and stays listed. Users page with first/after (at most 250); Linear keeps endCursor on the last page, so the walk ends only when pageInfo.hasNextPage is false.",
+    "invites": "A person joins by accepting an invite, so a new member is pending until then and settled from the user list; an accepted invite leaves the invite list. Invites use the ordinary user role, which is why this Doorkey is for paid plans (Basic, Business): a Free workspace can only invite admins, and Linear refuses the invite with FORBIDDEN 'Not allowed on free plan'. Inviting someone already invited or already a member (suspended included) is refused. A leaver who never accepted has their unaccepted invite looked up by email and deleted (Linear archives it and its placeholder user goes too), confirmed gone by its id.",
+    "limits": "An unsuspend straight after a suspend can fail with INPUT_ERROR 'auth unsuspend failed' and pass on retry, so a failed unsuspend is reported and retried on the next run. Linear allows 2500 requests an hour per key."
+  },
+
+  "base_url": "https://api.linear.app",
+  "hosts": ["api.linear.app"],
+  "auth": { "scheme": "header", "name": "Authorization" },
+
+  "allow": [
+    {
+      "method": "POST",
+      "path": "/graphql",
+      "params": [],
+      "graphql": ["users", "organizationInvites", "organizationInviteCreate", "organizationInviteDelete", "userSuspend", "userUnsuspend"]
+    }
+  ],
+
+  "ops": {
+    "list_users": {
+      "request": {
+        "method": "POST",
+        "path": "/graphql",
+        "graphql": {
+          "query": "query AppDoormanUsers($first: Int!, $after: String) { users(first: $first, after: $after, includeDisabled: true) { nodes { id email active app lastSeen } pageInfo { hasNextPage endCursor } } }"
+        }
+      },
+      "paginate": { "style": "cursor", "param": "after", "next": "data.users.pageInfo.endCursor", "more": "data.users.pageInfo.hasNextPage", "size_param": "first", "size": 100 },
+      "extract": { "list": "data.users.nodes", "id": "id", "user_name": "email", "active": "active", "skip": [{ "app": true }, { "active": false, "lastSeen": null }] }
+    },
+    "list_invites": {
+      "request": {
+        "method": "POST",
+        "path": "/graphql",
+        "graphql": {
+          "query": "query AppDoormanInvites($first: Int!, $after: String) { organizationInvites(first: $first, after: $after) { nodes { id email acceptedAt expiresAt } pageInfo { hasNextPage endCursor } } }"
+        }
+      },
+      "paginate": { "style": "cursor", "param": "after", "next": "data.organizationInvites.pageInfo.endCursor", "more": "data.organizationInvites.pageInfo.hasNextPage", "size_param": "first", "size": 100 },
+      "extract": { "list": "data.organizationInvites.nodes", "id": "id", "user_name": "email" }
+    },
+    "create_user": {
+      "request": {
+        "method": "POST",
+        "path": "/graphql",
+        "graphql": {
+          "query": "mutation AppDoormanInvite($email: String!) { organizationInviteCreate(input: { email: $email, role: user }) { success organizationInvite { id email } } }",
+          "variables": { "email": "{email}" }
+        }
+      },
+      "verify": { "present": { "op": "list_users", "expect": { "user_name": "{user_name}", "active": true } } },
+      "allow_pending": true
+    },
+    "deactivate_user": {
+      "request": {
+        "method": "POST",
+        "path": "/graphql",
+        "graphql": {
+          "query": "mutation AppDoormanSuspend($id: String!) { userSuspend(id: $id) { success } }",
+          "variables": { "id": "{id}" }
+        }
+      },
+      "verify": { "present": { "op": "list_users", "expect": { "active": false } } }
+    },
+    "reactivate_user": {
+      "request": {
+        "method": "POST",
+        "path": "/graphql",
+        "graphql": {
+          "query": "mutation AppDoormanUnsuspend($id: String!) { userUnsuspend(id: $id) { success } }",
+          "variables": { "id": "{id}" }
+        }
+      },
+      "verify": { "present": { "op": "list_users", "expect": { "active": true } } }
+    },
+    "withdraw_invite": {
+      "lookup": { "invite_id": { "op": "list_invites", "list": "data.organizationInvites.nodes", "where": { "email": "{user_name}", "acceptedAt": null }, "take": "id" } },
+      "request": {
+        "method": "POST",
+        "path": "/graphql",
+        "graphql": {
+          "query": "mutation AppDoormanWithdraw($id: String!) { organizationInviteDelete(id: $id) { success } }",
+          "variables": { "id": "{invite_id}" }
+        }
+      },
+      "verify": { "absent": { "op": "list_invites", "by": "invite_id" } }
+    }
+  }
+}

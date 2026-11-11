@@ -1,0 +1,55 @@
+{
+  "doorkey": "cloudflare",
+  "version": 1,
+
+  "_comment": {
+    "source": "Cloudflare's documented account members API: https://developers.cloudflare.com/api/resources/accounts/subresources/members/. Cloudflare only offers SCIM and dashboard SSO on Enterprise; this API works on every plan, Free included.",
+    "credential": "A Cloudflare API token for the one account, with the permission Account Settings: Edit, made by the account's Super Administrator. It is sent as a bearer token and does not expire unless the customer sets an expiry.",
+    "base_url": "The customer's account: https://api.cloudflare.com/client/v4/accounts/<account id>.",
+    "membership": "Cloudflare members have no active flag: being a member is having access, so there is no suspend. An invite is a member with status `pending` and is listed at once, so a leaver who never accepted is removed like anyone else.",
+    "role": "Below Enterprise, Cloudflare's only role for invited members is Administrator (the whole account, but not billing or members). Its id is looked up by name, across every page of the account's roles (there are dozens, even on Free), rather than assumed."
+  },
+
+  "base_url": "https://api.cloudflare.com/client/v4/accounts/REPLACE-WITH-ACCOUNT-ID",
+  "hosts": ["api.cloudflare.com"],
+  "auth": { "scheme": "bearer" },
+  "ok_field": "success",
+
+  "allow": [
+    { "method": "GET",    "path": "/members",      "params": ["page", "per_page"] },
+    { "method": "GET",    "path": "/members/{id}", "params": [] },
+    { "method": "GET",    "path": "/roles",        "params": ["page", "per_page"] },
+    { "method": "POST",   "path": "/members",      "params": [] },
+    { "method": "DELETE", "path": "/members/{id}", "params": [] }
+  ],
+
+  "ops": {
+    "list_users": {
+      "request": { "method": "GET", "path": "/members" },
+      "paginate": { "style": "page", "param": "page", "size_param": "per_page", "size": 50, "first": 1, "total": "result_info.total_count" },
+      "extract": { "list": "result", "id": "id", "user_name": "user.email" }
+    },
+    "find_user": {
+      "request": { "method": "GET", "path": "/members/{id}" },
+      "extract": { "id": "result.id", "user_name": "result.user.email" }
+    },
+    "list_roles": {
+      "request": { "method": "GET", "path": "/roles" },
+      "paginate": { "style": "page", "param": "page", "size_param": "per_page", "size": 50, "first": 1, "total": "result_info.total_count" }
+    },
+    "create_user": {
+      "lookup": { "role_id": { "op": "list_roles", "list": "result", "where": { "name": "Administrator" }, "take": "id" } },
+      "request": {
+        "method": "POST",
+        "path": "/members",
+        "body": { "email": "{email}", "roles": ["{role_id}"], "status": "pending" }
+      },
+      "extract": { "id": "result.id", "user_name": "result.user.email" },
+      "verify": { "present": { "op": "find_user", "expect": { "user_name": "{user_name}" } } }
+    },
+    "delete_user": {
+      "request": { "method": "DELETE", "path": "/members/{id}" },
+      "verify": { "absent": { "op": "find_user" } }
+    }
+  }
+}

@@ -1,0 +1,75 @@
+{
+  "doorkey": "mock",
+  "version": 1,
+
+  "_comment": {
+    "hosts": "Development only. The hosts the credential may be sent to. `*` is any host, which only dev mode honours: this is the built-in mock, and a production Keyhole refuses to load it. A real Doorkey names the app's own hosts, e.g. [\"*.example.com\"].",
+    "allow": "Every request the Keyhole will ever send for this app, reads included, with the query parameter names it may carry. Anything not listed here is refused before it leaves the process, and an op the list does not cover is refused when the Doorkey loads.",
+    "ops": "Each op is one recorded lifecycle action. `verify` is the fresh read that must confirm the change before it is reported as done (required on every POST/PUT/PATCH/DELETE op); `extract` tells the interpreter where the user fields live; `paginate` tells it how to walk a list."
+  },
+
+  "base_url": "https://REPLACE-WITH-APP-HOST/KEY/v2",
+  "hosts": ["*"],
+  "auth": { "scheme": "bearer" },
+
+  "allow": [
+    { "method": "GET",    "path": "/Users",      "params": ["startIndex", "count"] },
+    { "method": "GET",    "path": "/Users/{id}", "params": [] },
+    { "method": "POST",   "path": "/Users",      "params": [] },
+    { "method": "PATCH",  "path": "/Users/{id}", "params": [] },
+    { "method": "DELETE", "path": "/Users/{id}", "params": [] }
+  ],
+
+  "ops": {
+    "list_users": {
+      "request": { "method": "GET", "path": "/Users" },
+      "paginate": { "style": "offset", "param": "startIndex", "size_param": "count", "size": 100, "first": 1, "total": "totalResults" },
+      "extract": { "list": "Resources", "id": "id", "user_name": "userName", "active": "active" }
+    },
+    "find_user": {
+      "request": { "method": "GET", "path": "/Users/{id}" },
+      "extract": { "id": "id", "user_name": "userName", "active": "active" }
+    },
+    "create_user": {
+      "request": {
+        "method": "POST",
+        "path": "/Users",
+        "body": {
+          "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
+          "userName": "{user_name}",
+          "active": true,
+          "name": { "givenName": "{given}", "familyName": "{family}" },
+          "emails": [{ "type": "work", "value": "{email}", "primary": true }]
+        }
+      },
+      "extract": { "id": "id", "user_name": "userName", "active": "active" },
+      "verify": { "present": { "op": "find_user", "expect": { "active": true, "user_name": "{user_name}" } } }
+    },
+    "deactivate_user": {
+      "request": {
+        "method": "PATCH",
+        "path": "/Users/{id}",
+        "body": {
+          "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+          "Operations": [{ "op": "replace", "path": "active", "value": "{active}" }]
+        }
+      },
+      "verify": { "present": { "op": "find_user", "expect": { "active": false } } }
+    },
+    "reactivate_user": {
+      "request": {
+        "method": "PATCH",
+        "path": "/Users/{id}",
+        "body": {
+          "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+          "Operations": [{ "op": "replace", "path": "active", "value": "{active}" }]
+        }
+      },
+      "verify": { "present": { "op": "find_user", "expect": { "active": true } } }
+    },
+    "delete_user": {
+      "request": { "method": "DELETE", "path": "/Users/{id}" },
+      "verify": { "absent": { "op": "find_user" } }
+    }
+  }
+}

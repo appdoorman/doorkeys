@@ -1,0 +1,41 @@
+[package]
+name = "appdoorman-keyhole"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.86"
+description = "AppDoorman's Keyhole: the service that holds app credentials and runs signed Doorkey specs"
+license = "AGPL-3.0-only"
+repository = "https://github.com/appdoorman/doorkeys"
+publish = false
+
+[features]
+# The built-in mock SCIM app the reference Doorkey points at (a development server).
+mock = ["dep:axum"]
+# In-memory stand-ins for vendors' admin APIs, for tests of code that drives a Doorkey.
+fakes = ["dep:axum"]
+
+[dependencies]
+anyhow = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+aes-gcm = "0.10"
+rand = "0.8"
+base64 = "0.22"
+sha2 = "0.10"
+hmac = "0.12"
+hex = "0.4"
+subtle = "2"
+zeroize = { version = "1", features = ["derive"] }
+ring = "0.17"
+url = "2"
+urlencoding = "2"
+tracing = "0.1"
+axum = { version = "0.8", features = ["macros"], optional = true }
+
+[dev-dependencies]
+axum = { version = "0.8", features = ["macros"] }
+tempfile = "3"

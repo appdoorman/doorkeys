@@ -1,0 +1,99 @@
+{
+  "doorkey": "microsoft365",
+  "version": 1,
+
+  "_comment": {
+    "source": "Microsoft Graph v1.0: users (https://learn.microsoft.com/graph/api/resources/user), create user (user-post-users), update (user-update), delete (user-delete), assignLicense (user-assignlicense) and subscribedSkus (subscribedsku-list).",
+    "credential": "An app registration in the customer's Microsoft Entra tenant with a client secret and these Microsoft Graph application permissions, admin-consented: User.ReadWrite.All, LicenseAssignment.ReadWrite.All and Organization.Read.All (for the licenses and their seats). The token comes from login.microsoftonline.com for the customer's tenant id; the client secret goes nowhere else.",
+    "sign_in": "AppDoorman manages Microsoft 365 accounts for a domain that signs in with Google (federated with Google Workspace), so no Microsoft password ever exists. Each account is created with onPremisesImmutableId set to the Google email, the value Google's Office 365 SAML app sends as the Name ID. Microsoft requires it for a federated domain.",
+    "licenses": "Each license is a group to Doorkey group push: a Google group the admin maps to a license gives it to its members and takes it from people who leave. Licenses are read from subscribedSkus with their seats; a license is never created. Microsoft refuses a license for a user without a usage location, so every account is created with the app's usage location.",
+    "leavers": "A leaver loses their licenses with the group change, is blocked from signing in (accountEnabled false), and is deleted after the app's grace period. Microsoft keeps a deleted user restorable for 30 days.",
+    "identity": "People are matched by userPrincipalName, the Google email. Guests are left out. Anyone AppDoorman didn't create or take over is never touched.",
+    "busy": "Graph answers 409 'Error due to concurrent requests being made to the tenant. Please wait briefly and retry.' to a license change right after accounts are created, so 409 is retried like a rate limit."
+  },
+
+  "base_url": "https://graph.microsoft.com/v1.0",
+  "hosts": ["graph.microsoft.com"],
+  "auth": {
+    "scheme": "oauth_client_credentials",
+    "token_url": "https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token",
+    "fields": ["tenant_id"],
+    "scope": "https://graph.microsoft.com/.default",
+    "credentials_in_body": true
+  },
+  "headers": { "ConsistencyLevel": "eventual" },
+  "settle": { "tries": 8, "wait_ms": 2000 },
+  "retry_statuses": [409],
+  "parameters": [{ "name": "usage_location", "kind": "country_code" }],
+  "hints": {
+    "Authorization_RequestDenied": "Microsoft refused: the app registration is missing a permission or its admin consent. Grant User.ReadWrite.All, LicenseAssignment.ReadWrite.All and Organization.Read.All as application permissions and click Grant admin consent."
+  },
+
+  "allow": [
+    { "method": "GET",    "path": "/users",                    "params": ["$select", "$top", "$skiptoken", "$filter", "$count"] },
+    { "method": "GET",    "path": "/users/{id}",               "params": ["$select"] },
+    { "method": "POST",   "path": "/users",                    "params": [] },
+    { "method": "PATCH",  "path": "/users/{id}",               "params": [] },
+    { "method": "DELETE", "path": "/users/{id}",               "params": [] },
+    { "method": "POST",   "path": "/users/{id}/assignLicense", "params": [] },
+    { "method": "GET",    "path": "/subscribedSkus",           "params": [] }
+  ],
+
+  "ops": {
+    "list_users": {
+      "request": { "method": "GET", "path": "/users", "query": { "$select": "id,userPrincipalName,accountEnabled,userType", "$top": "999" } },
+      "paginate": { "style": "next_url", "path": "@odata.nextLink", "param": "$skiptoken" },
+      "extract": { "list": "value", "id": "id", "user_name": "userPrincipalName", "active": "accountEnabled", "skip": [{ "userType": "Guest" }] }
+    },
+    "find_user": {
+      "request": { "method": "GET", "path": "/users/{id}", "query": { "$select": "id,userPrincipalName,accountEnabled,userType" } },
+      "extract": { "id": "id", "user_name": "userPrincipalName", "active": "accountEnabled" }
+    },
+    "create_user": {
+      "request": {
+        "method": "POST", "path": "/users",
+        "body": {
+          "accountEnabled": true,
+          "userPrincipalName": "{user_name}",
+          "mailNickname": "{user_name_local}",
+          "displayName": "{given} {family}",
+          "givenName": "{given}",
+          "surname": "{family}",
+          "usageLocation": "{usage_location}",
+          "onPremisesImmutableId": "{email}"
+        }
+      },
+      "extract": { "id": "id", "user_name": "userPrincipalName", "active": "accountEnabled" },
+      "verify": { "present": { "op": "find_user", "expect": { "user_name": "{user_name}", "active": true } } }
+    },
+    "deactivate_user": {
+      "request": { "method": "PATCH", "path": "/users/{id}", "body": { "accountEnabled": false } },
+      "verify": { "present": { "op": "find_user", "expect": { "active": false } } }
+    },
+    "reactivate_user": {
+      "request": { "method": "PATCH", "path": "/users/{id}", "body": { "accountEnabled": true } },
+      "verify": { "present": { "op": "find_user", "expect": { "active": true } } }
+    },
+    "delete_user": {
+      "request": { "method": "DELETE", "path": "/users/{id}" },
+      "verify": { "absent": { "op": "find_user" } }
+    },
+    "list_groups": {
+      "request": { "method": "GET", "path": "/subscribedSkus" },
+      "groups": { "list": "value", "id": "skuId", "name": "skuPartNumber", "seats_total": "prepaidUnits.enabled", "seats_used": "consumedUnits" }
+    },
+    "list_group_members": {
+      "request": { "method": "GET", "path": "/users", "query": { "$filter": "assignedLicenses/any(x:x/skuId eq {group_id})", "$count": "true", "$select": "id,userPrincipalName,accountEnabled", "$top": "999" } },
+      "paginate": { "style": "next_url", "path": "@odata.nextLink", "param": "$skiptoken" },
+      "extract": { "list": "value", "id": "id", "user_name": "userPrincipalName", "active": "accountEnabled" }
+    },
+    "add_group_member": {
+      "request": { "method": "POST", "path": "/users/{id}/assignLicense", "body": { "addLicenses": [{ "skuId": "{group_id}", "disabledPlans": [] }], "removeLicenses": [] } },
+      "verify": { "present": { "op": "list_group_members", "expect": {} } }
+    },
+    "remove_group_member": {
+      "request": { "method": "POST", "path": "/users/{id}/assignLicense", "body": { "addLicenses": [], "removeLicenses": ["{group_id}"] } },
+      "verify": { "absent": { "op": "list_group_members" } }
+    }
+  }
+}

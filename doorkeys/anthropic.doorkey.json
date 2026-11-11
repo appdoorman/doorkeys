@@ -1,0 +1,171 @@
+{
+  "doorkey": "anthropic",
+  "version": 2,
+  "_comment": {
+    "source": "Anthropic's Admin API (https://platform.claude.com/docs/en/manage-claude/user-management): GET /v1/organizations/users, GET and DELETE /v1/organizations/users/{user_id}, GET and POST /v1/organizations/invites, DELETE /v1/organizations/invites/{invite_id}. It serves Claude Console organizations on every plan, and Claude Enterprise organizations with a key made in claude.ai.",
+    "credential": "An Admin API key (sk-ant-admin…), made in Settings › Admin keys of a team organization (an individual one has none). Admin keys carry no scopes; they get a name and an expiry. Sent in the x-api-key header; the anthropic-version header is required on every request.",
+    "hosts": "One API host for every organization; the key decides the organization, so the URL is fixed.",
+    "membership": "Members have no active flag: being a member is having access, so there is no suspend and a leaver is removed (DELETE returns their seat to the pool). Members and invites page by id (after_id, then last_id); the page after the last one is empty.",
+    "invites": "A person joins by accepting an invite, so a new member is pending until then and settled from the member list. A pending invite holds a seat; when its person leaves their groups first, it is withdrawn (looked up by email among pending invites) and confirmed gone. Invites read pending, accepted or expired, and only pending ones count.",
+    "role": "Invites use the user role, which both Console and Enterprise organizations accept. Members with an administrative role can't be removed through the API.",
+    "conflicts": "An organization whose SSO adds members on first sign-in (JIT) or through SCIM refuses API invites with a 400 that says so; switch Claude to invite-only provisioning.",
+    "domains": "An organization invites only addresses on domains it allows, and refuses others with a 400 whose message says to ask Anthropic support to add the domain. There is no Console setting for it. An organization owned by a personal address (Gmail) refuses company domains."
+  },
+  "base_url": "https://api.anthropic.com/v1/organizations",
+  "hosts": [
+    "api.anthropic.com"
+  ],
+  "auth": {
+    "scheme": "header",
+    "name": "x-api-key"
+  },
+  "headers": {
+    "anthropic-version": "2023-06-01"
+  },
+  "allow": [
+    {
+      "method": "GET",
+      "path": "/users",
+      "params": [
+        "limit",
+        "after_id"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/users/{id}",
+      "params": []
+    },
+    {
+      "method": "DELETE",
+      "path": "/users/{id}",
+      "params": []
+    },
+    {
+      "method": "GET",
+      "path": "/invites",
+      "params": [
+        "limit",
+        "after_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/invites",
+      "params": []
+    },
+    {
+      "method": "DELETE",
+      "path": "/invites/{invite_id}",
+      "params": []
+    }
+  ],
+  "ops": {
+    "list_users": {
+      "request": {
+        "method": "GET",
+        "path": "/users"
+      },
+      "paginate": {
+        "style": "cursor",
+        "param": "after_id",
+        "next": "last_id",
+        "size_param": "limit",
+        "size": 100
+      },
+      "extract": {
+        "list": "data",
+        "id": "id",
+        "user_name": "email"
+      }
+    },
+    "find_user": {
+      "request": {
+        "method": "GET",
+        "path": "/users/{id}"
+      },
+      "extract": {
+        "id": "id",
+        "user_name": "email"
+      }
+    },
+    "list_invites": {
+      "request": {
+        "method": "GET",
+        "path": "/invites"
+      },
+      "paginate": {
+        "style": "cursor",
+        "param": "after_id",
+        "next": "last_id",
+        "size_param": "limit",
+        "size": 100
+      },
+      "extract": {
+        "list": "data",
+        "id": "id",
+        "user_name": "email",
+        "skip": [
+          {
+            "status": "accepted"
+          },
+          {
+            "status": "expired"
+          }
+        ]
+      }
+    },
+    "create_user": {
+      "request": {
+        "method": "POST",
+        "path": "/invites",
+        "body": {
+          "email": "{email}",
+          "role": "user"
+        }
+      },
+      "verify": {
+        "present": {
+          "op": "list_users",
+          "expect": {
+            "user_name": "{user_name}"
+          }
+        }
+      },
+      "allow_pending": true
+    },
+    "delete_user": {
+      "request": {
+        "method": "DELETE",
+        "path": "/users/{id}"
+      },
+      "verify": {
+        "absent": {
+          "op": "find_user"
+        }
+      }
+    },
+    "withdraw_invite": {
+      "lookup": {
+        "invite_id": {
+          "op": "list_invites",
+          "list": "data",
+          "where": {
+            "email": "{user_name}",
+            "status": "pending"
+          },
+          "take": "id"
+        }
+      },
+      "request": {
+        "method": "DELETE",
+        "path": "/invites/{invite_id}"
+      },
+      "verify": {
+        "absent": {
+          "op": "list_invites"
+        }
+      }
+    }
+  }
+}
