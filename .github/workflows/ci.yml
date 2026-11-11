@@ -1,5 +1,4 @@
-# Takes effect when this folder is the root of its own repository: lint, tests and a signature
-# check of every Doorkey spec.
+# Lint, tests and a signature check of every Doorkey spec.
 name: CI
 
 on:
