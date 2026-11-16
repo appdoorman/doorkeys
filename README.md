@@ -3,7 +3,9 @@
 [AppDoorman](https://appdoorman.com) provisions accounts in SaaS apps from Google Workspace groups.
 For an app whose plan has no SCIM, it uses the app's own admin API, and to do that it needs an
 admin credential for the app. This repository is the code that holds and uses that credential, so
-anyone can check what it does with it.
+anyone can check what it does with it. Which apps keep SCIM for their Enterprise plan, and which
+ones Google Workspace provisions on its own, is in the directory
+[Can Google Workspace provision your apps?](https://appdoorman.com/docs/google-workspace-auto-provisioning)
 
 - A Doorkey is a signed spec for one app: every request AppDoorman may ever send to that app,
   reads included, and the read-back that must confirm each change. The specs are in
